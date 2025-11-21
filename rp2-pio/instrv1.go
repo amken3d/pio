@@ -22,8 +22,19 @@ func (asm AssemblerV1) WaitGPIO(polarity bool, pin uint8) instructionV0 {
 }
 
 // WaitIRQ instruction unchanged from [AssemblerV0.WaitIRQ].
+// For RP2350's extended IRQ index modes (prev, next), use [AssemblerV1.WaitIRQWithMode].
 func (asm AssemblerV1) WaitIRQ(polarity bool, relative bool, irqindex uint8) instructionV0 {
 	return asm.v0().WaitIRQ(polarity, relative, irqindex)
+}
+
+// WaitIRQWithMode stalls until PIO IRQ flag selected by irqIndex, using the specified index mode.
+// This is the RP2350 (PIO v1) version that supports all four index modes.
+//   - If Polarity is 1, the selected IRQ flag is cleared by the state machine upon the wait condition being met.
+//   - idxMode specifies how the IRQ index is interpreted (direct, prev, rel, or next).
+func (asm AssemblerV1) WaitIRQWithMode(polarity bool, irqIndex uint8, idxMode IRQIndexMode) instructionV0 {
+	flag := boolAsU8(polarity) << 2
+	// Encoding: WAIT (0x2000) | source=0b10 (IRQ) | polarity at bit 7 | idxMode at bits 4-3 | irqIndex at bits 2-0
+	return asm.v0().instrArgs(_INSTR_BITS_WAIT, 2|flag, uint8(idxMode&0b11)<<3|irqIndex&0b111)
 }
 
 // WaitPin instruction unchanged from [AssemblerV0.WaitPin].
@@ -81,11 +92,12 @@ func (asm AssemblerV1) MovReverse(dest MovDest, src MovSrc) instructionV0 {
 // MovOSRFromRx reads the selected RX FIFO entry into the OSR. The PIO state machine can read the FIFO entries in any order, indexed
 // either by the Y register, or an immediate Index in the instruction. Requires the SHIFTCTRL_FJOIN_RX_GET configuration field
 // to be set, otherwise its operation is undefined.
-//   - If idxByImmediate (index by immediate) is set, the RX FIFO’s registers are indexed by the two least-significant bits of the Index
+//   - If idxByImmediate (index by immediate) is set, the RX FIFO's registers are indexed by the two least-significant bits of the Index
 //     operand. Otherwise, they are indexed by the two least-significant bits of the Y register. When IdxI is clear, all non-zero
 //     values of Index are reserved encodings, and their operation is undefined.
 func (asm AssemblerV1) MovOSRFromRx(idxByImmediate bool, RxFifoIndex uint8) instructionV0 {
-	instr := _INSTR_BITS_MOV | (0b1001 << 4) | (uint16(boolAsU8(idxByImmediate) << 3)) | uint16(RxFifoIndex)&0b111
+	// Encoding: 0x8000 (PUSH/PULL family) | bit7=1 (GET) | bit4=1 | bit3=IdxI | bits2-0=index
+	instr := _INSTR_BITS_PUSH | (1 << 7) | (1 << 4) | uint16(boolAsU8(idxByImmediate))<<3 | uint16(RxFifoIndex&0b111)
 	return asm.v0().instr(instr)
 }
 
@@ -93,11 +105,12 @@ func (asm AssemblerV1) MovOSRFromRx(idxByImmediate bool, RxFifoIndex uint8) inst
 // by the Y register, or an immediate Index in the instruction. Requires the SHIFTCTRL_FJOIN_RX_PUT configuration field to be
 // set, otherwise its operation is undefined. The FIFO configuration can be specified for the program via the .fifo directive
 // (see pioasm_fifo).
-//   - If idxByImmediate (index by immediate) is set, the RX FIFO’s registers are indexed by the two least-significant bits of the Index
+//   - If idxByImmediate (index by immediate) is set, the RX FIFO's registers are indexed by the two least-significant bits of the Index
 //     operand. Otherwise, they are indexed by the two least-significant bits of the Y register. When IdxI is clear, all non-zero
 //     values of Index are reserved encodings, and their operation is undefined.
 func (asm AssemblerV1) MovISRToRx(idxByImmediate bool, RxFifoIndex uint8) instructionV0 {
-	instr := _INSTR_BITS_MOV | (0b1000 << 4) | (uint16(boolAsU8(idxByImmediate) << 3)) | uint16(RxFifoIndex)&0b111
+	// Encoding: 0x8000 (PUSH/PULL family) | bit7=0 (PUT) | bit4=1 | bit3=IdxI | bits2-0=index
+	instr := _INSTR_BITS_PUSH | (1 << 4) | uint16(boolAsU8(idxByImmediate))<<3 | uint16(RxFifoIndex&0b111)
 	return asm.v0().instr(instr)
 }
 
